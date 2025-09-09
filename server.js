@@ -59,7 +59,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Serve static files from public directory
-app.use(express.static(path.join(__dirname, 'public')));
+// app.use(express.static(path.join(__dirname, 'public')));
 
 // Rate limiting middleware
 app.use(async (req, res, next) => {
@@ -85,9 +85,9 @@ app.get('/api/config', (req, res) => {
 });
 
 // Serve frontend
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// app.get('/', (req, res) => {
+//   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// });
 
 // Email transporter configuration
 let transporter;
@@ -281,3 +281,4 @@ process.on('SIGINT', () => {
   console.log('Shutting down server gracefully');
   process.exit(0);
 });
+

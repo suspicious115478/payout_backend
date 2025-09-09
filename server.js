@@ -3,7 +3,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
 const nodemailer = require('nodemailer');
-const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -12,54 +11,31 @@ const PORT = process.env.PORT || 3000;
 // Rate limiting
 const rateLimiter = new RateLimiterMemory({
   keyGenerator: (req) => req.ip || req.connection.remoteAddress,
-  points: 100, // Increased for production
-  duration: 60, // per 60 seconds
+  points: 100,
+  duration: 60,
 });
 
 // Middleware
-app.use(helmet({
-  contentSecurityPolicy: false, // Render के लिए CSP disable करें
-  crossOriginEmbedderPolicy: false
-}));
+app.use(helmet());
 
-// CORS settings for production
+// CORS settings - Netlify frontend के लिए allow करें
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'http://localhost:3000', 
-      'http://127.0.0.1:3000', 
-      'http://localhost:5500', 
-      'http://127.0.0.1:5500', 
-      'http://localhost:8080', 
-      'http://127.0.0.1:8080',
-      'https://your-frontend-domain.onrender.com', // अपना frontend domain डालें
-      /\.onrender\.com$/ // All Render domains
-    ];
-    
-    if (allowedOrigins.some(allowedOrigin => {
-      if (typeof allowedOrigin === 'string') {
-        return origin === allowedOrigin;
-      } else if (allowedOrigin instanceof RegExp) {
-        return allowedOrigin.test(origin);
-      }
-      return false;
-    })) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:5500',
+    'http://127.0.0.1:5500',
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
+    'https://clever-sopapillas-7bdd77.netlify.app', // अपना Netlify URL डालें
+    /\.netlify\.app$/, // सभी Netlify domains
+    /\.onrender\.$/ // सभी Render domains
+  ],
   credentials: true
 }));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-
-// Serve static files from public directory
-// app.use(express.static(path.join(__dirname, 'public')));
 
 // Rate limiting middleware
 app.use(async (req, res, next) => {
@@ -74,20 +50,16 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Auto-configuration endpoint
+// Auto-configuration endpoint - Netlify frontend के लिए optimized
 app.get('/api/config', (req, res) => {
+  const backendBaseUrl = `https://${req.get('host')}`;
   res.json({
     success: true,
-    backendUrl: `${req.protocol}://${req.get('host')}/api/send-email`,
-    batchUrl: `${req.protocol}://${req.get('host')}/api/send-batch`,
-    message: 'Backend automatically configured for Render'
+    backendUrl: `${backendBaseUrl}/api/send-email`,
+    batchUrl: `${backendBaseUrl}/api/send-batch`,
+    message: 'Backend API is ready for Netlify frontend'
   });
 });
-
-// Serve frontend
-// app.get('/', (req, res) => {
-//   res.sendFile(path.join(__dirname, 'public', 'index.html'));
-// });
 
 // Email transporter configuration
 let transporter;
@@ -102,7 +74,6 @@ if (process.env.SMTP_HOST) {
     },
   });
 } else if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-  // Gmail configuration (recommended for ease of use)
   transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -120,7 +91,7 @@ app.get('/api/health', (req, res) => {
     success: true, 
     message: 'Payment Slip Backend is running on Render',
     emailConfigured: !!transporter,
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'production'
   });
 });
 
@@ -129,7 +100,6 @@ app.post('/api/send-email', async (req, res) => {
   try {
     const { to_email, subject, message } = req.body;
 
-    // Validate request
     if (!to_email || !subject || !message) {
       return res.status(400).json({
         success: false,
@@ -137,7 +107,6 @@ app.post('/api/send-email', async (req, res) => {
       });
     }
 
-    // Check if email is configured
     if (!transporter) {
       return res.status(500).json({
         success: false,
@@ -145,7 +114,6 @@ app.post('/api/send-email', async (req, res) => {
       });
     }
 
-    // Send email
     const mailOptions = {
       from: process.env.FROM_EMAIL || process.env.GMAIL_USER,
       to: to_email,
@@ -222,7 +190,6 @@ app.post('/api/send-batch', async (req, res) => {
           messageId: info.messageId
         });
         
-        // Add a small delay between emails to avoid rate limiting
         await new Promise(resolve => setTimeout(resolve, 300));
       } catch (error) {
         console.error('Error sending email to:', emailData.to_email, error);
@@ -248,16 +215,31 @@ app.post('/api/send-batch', async (req, res) => {
   }
 });
 
-// Render specific health check
+// Render health check
 app.get('/_health', (req, res) => {
   res.status(200).send('OK');
 });
 
-// Handle 404
-app.use('*', (req, res) => {
+// Handle 404 - API endpoints के लिए
+app.use('/api/*', (req, res) => {
   res.status(404).json({
     success: false,
-    message: 'Endpoint not found'
+    message: 'API endpoint not found'
+  });
+});
+
+// Root route - Frontend Netlify पर है इसलिए message show करें
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Payment Slip Backend is running on Render',
+    frontend: 'Please use your Netlify frontend URL',
+    api_endpoints: {
+      health: '/api/health',
+      config: '/api/config',
+      sendEmail: '/api/send-email',
+      sendBatch: '/api/send-batch'
+    }
   });
 });
 
@@ -273,12 +255,11 @@ app.use((error, req, res, next) => {
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Payment Slip Backend running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
+  console.log('Frontend should be hosted on Netlify separately');
 });
 
-// Graceful shutdown
 process.on('SIGINT', () => {
   console.log('Shutting down server gracefully');
   process.exit(0);
 });
-
